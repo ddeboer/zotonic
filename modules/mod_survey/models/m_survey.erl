@@ -251,7 +251,8 @@ survey_results(SurveyId, Context) ->
         {survey, QuestionIds, Questions} ->
              Rows = z_db:q("select user_id, persistent, question, name, value, text, created
                             from survey_answer 
-                            where survey_id = $1", [SurveyId], Context),
+                            where survey_id = $1
+                            order by user_id, persistent", [SurveyId], Context),
             Grouped = group_users(Rows),
             QIds = [ z_convert:to_binary(QId) || QId <- QuestionIds ],
             QsB = [ {z_convert:to_binary(QId), Q} || {QId, Q} <- Questions ],
