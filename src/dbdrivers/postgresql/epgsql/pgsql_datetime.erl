@@ -2,8 +2,6 @@
 
 -module(pgsql_datetime).
 
--include_lib("zotonic.hrl").
-
 -export([decode/3, encode/3, test/0]).
 
 -define(int16, 1/big-signed-unit:16).
@@ -31,13 +29,13 @@ decode(date, <<J:1/big-signed-unit:32>>, _IntegerDatetime)               -> j2da
 decode(time, <<N:1/big-float-unit:64>>, false)                           -> f2time(N);
 decode(timetz, <<N:1/big-float-unit:64, TZ:?int32>>, false)              -> {f2time(N), TZ};
 decode(timestamp, <<N:1/big-float-unit:64>>, false)                      -> f2timestamp(N);
-decode(timestamptz, <<N:1/big-float-unit:64>>, false)                    -> z_convert:to_localtime(f2timestamp(N));
+decode(timestamptz, <<N:1/big-float-unit:64>>, false)                    -> f2timestamp(N);
 decode(interval, <<N:1/big-float-unit:64, D:?int32, M:?int32>>, false)   -> {f2time(N), D, M};
 
 decode(time, <<N:1/big-signed-unit:64>>, true)                           -> i2time(N);
 decode(timetz, <<N:1/big-signed-unit:64, TZ:?int32>>, true)              -> {i2time(N), TZ};
 decode(timestamp, <<N:1/big-signed-unit:64>>, true)                      -> i2timestamp(N);
-decode(timestamptz, <<N:1/big-signed-unit:64>>, true)                    -> z_convert:to_localtime(i2timestamp(N));
+decode(timestamptz, <<N:1/big-signed-unit:64>>, true)                    -> i2timestamp(N);
 decode(interval, <<N:1/big-signed-unit:64, D:?int32, M:?int32>>, true)   -> {i2time(N), D, M}.
 
 
@@ -45,13 +43,13 @@ encode(date, D, _IntegerDatetime)  -> <<4:?int32, (date2j(D) - ?postgres_epoc_jd
 encode(time, T, false)             -> <<8:?int32, (time2f(T)):1/big-float-unit:64>>;
 encode(timetz, {T, TZ}, false)     -> <<12:?int32, (time2f(T)):1/big-float-unit:64, TZ:?int32>>;
 encode(timestamp, TS, false)       -> <<8:?int32, (timestamp2f(TS)):1/big-float-unit:64>>;
-encode(timestamptz, TS, false)     -> <<8:?int32, (timestamp2f(z_convert:to_utc(TS))):1/big-float-unit:64>>;
+encode(timestamptz, TS, false)     -> <<8:?int32, (timestamp2f(TS)):1/big-float-unit:64>>;
 encode(interval, {T, D, M}, false) -> <<16:?int32, (time2f(T)):1/big-float-unit:64, D:?int32, M:?int32>>;
 
 encode(time, T, true)              -> <<8:?int32, (time2i(T)):1/big-signed-unit:64>>;
 encode(timetz, {T, TZ}, true)      -> <<12:?int32, (time2i(T)):1/big-signed-unit:64, TZ:?int32>>;
 encode(timestamp, TS, true)        -> <<8:?int32, (timestamp2i(TS)):1/big-signed-unit:64>>;
-encode(timestamptz, TS, true)      -> <<8:?int32, (timestamp2i(z_convert:to_utc(TS))):1/big-signed-unit:64>>;
+encode(timestamptz, TS, true)      -> <<8:?int32, (timestamp2i(TS)):1/big-signed-unit:64>>;
 encode(interval, {T, D, M}, true)  -> <<16:?int32, (time2i(T)):1/big-signed-unit:64, D:?int32, M:?int32>>.
 
 
