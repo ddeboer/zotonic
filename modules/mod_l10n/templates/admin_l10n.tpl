@@ -12,7 +12,7 @@
 
     <div class="row-fluid">
         <div class="widget span6">
-            <h3 class="widget-header">{_ Localization _}</h3>
+            <h3 class="widget-header">{_ Timezone _}</h3>
             <div class="widget-content">
 
                 <div class="control-group">
@@ -35,6 +35,5 @@
         </div>
     </div>
 </div>
-
 
 {% endblock %}
