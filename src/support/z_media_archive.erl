@@ -153,22 +153,21 @@ safe_filename_1(<<_/utf8, Rest/binary>>, Acc) ->
 
 %% @doc Make sure that the filename is unique by appending a number on filename clashes
 make_unique(Rootname, Extension, Context) ->
-    case m_media:is_unique_file(Rootname ++ Extension, Context) of
-
-        true ->
-            Rootname ++ Extension;
-        false -> 
-            make_unique(Rootname, Extension, z_ids:number(), Context)
-    end.
-
-make_unique(Rootname, Extension, Nr, Context) ->
-    File = Rootname ++ [$-|integer_to_list(Nr)] ++ Extension,
+    File = iolist_to_binary([Rootname, Extension]),
     case m_media:is_unique_file(File, Context) of
         true ->
             File;
         false -> 
             make_unique(Rootname, Extension, z_ids:number(), Context)
+    end.
 
+make_unique(Rootname, Extension, Nr, Context) ->
+    File = iolist_to_binary([Rootname, $-, integer_to_list(Nr), Extension]),
+    case m_media:is_unique_file(File, Context) of
+        true ->
+            File;
+        false -> 
+            make_unique(Rootname, Extension, z_ids:number(), Context)
     end.
 
 
@@ -176,9 +175,9 @@ make_unique(Rootname, Extension, Nr, Context) ->
 is_archived(undefined, _Context) ->
     false;
 is_archived(Filename, Context) ->
-    Fileabs = filename:absname(Filename),
-    Archive = z_path:media_archive(Context) ++ "/",
-    lists:prefix(Archive, z_convert:to_list(Fileabs)).
+    Fileabs = z_convert:to_list(filename:absname(Filename)),
+    Archive = z_convert:to_list(z_path:media_archive(Context)) ++ "/",
+    lists:prefix(Archive, Fileabs).
     
 
 %% @doc Remove the path to the archive directory, return a filename relative to the archive directory
@@ -187,4 +186,5 @@ rel_archive(Filename, Context) ->
     Archive = z_convert:to_list(z_path:media_archive(Context)) ++ "/",
     true = lists:prefix(Archive, Fileabs),
     lists:nthtail(length(Archive), Fileabs).
+
 	
