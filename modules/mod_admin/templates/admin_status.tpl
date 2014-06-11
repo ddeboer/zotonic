@@ -20,10 +20,26 @@
 
 	    <div class="control-group">
             <div class="controls">
-                {% button class="btn" text=_"Rebuild search indices" action={admin_tasks task='pivot_all'} %}
-                {% with m.admin_rsc.pivot_queue_count as cnt %}
-                    {% if cnt %}<span class="label label-info">{_ Pivot queue count size: _} {{ cnt }}</span>{% endif %}
-                {% endwith %}
+                {% button
+                   class="btn"
+                   id="btn-rebuild-indices"
+                   text=_"Rebuild search indices"
+                   action={
+                       admin_tasks
+                       task='pivot_all'
+                   }
+                   action={
+                       script
+                       script="queueCountInfo('#pivot-queue-count', '#btn-rebuild-indices')"
+                   }
+                 %}
+                <span id="pivot-queue-count">
+                    {% if m.admin_rsc.pivot_queue_count %}
+                        {% javascript %}
+                            queueCountInfo('#pivot-queue-count', '#btn-rebuild-indices');
+                        {% endjavascript %}
+                    {% endif %}
+                </span>
                 <span class="help-inline">{_ Rebuild all search-indices by putting all pages and data from the database in the indexer queue. This can take a long time! _}</span>
                 </span>
             </div>
@@ -47,5 +63,5 @@
 
     </div>
 </div>
-
+{% include "_admin_status_update_pivot_count.tpl" %}
 {% endblock %}

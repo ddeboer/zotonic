@@ -1,8 +1,8 @@
-%% @author Marc Worrell <marc@worrell.nl>
-%% @copyright 2009,2010,2011,2012 Marc Worrell
-%% @doc Main definitions for zotonic
+%% @author Mawuli Adzaku <mawuli@mawuli.me>
+%% @copyright 2014 Mawuli Adzaku
+%% @doc 'md5' filter, translate a string to an md5 hex value
 
-%% Copyright 2009,2010,2011,2012 Marc Worrell, Arjan Scherpenisse
+%% Copyright 2014 Mawuli Adzaku
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -16,5 +16,11 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 
-%% Release number
--define(ZOTONIC_VERSION, "0.10.0p1").
+-module(filter_md5).
+-export([md5/2]).
+
+
+md5(undefined, _Context) ->
+    undefined;
+md5(Input, _Context) ->
+    erlang:iolist_to_binary(z_utils:hex_encode(crypto:hash(md5, z_convert:to_binary(Input)))).
