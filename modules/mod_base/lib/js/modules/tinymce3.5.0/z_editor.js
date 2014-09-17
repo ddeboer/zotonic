@@ -27,7 +27,7 @@ var z_editor = (function ($) {
         add: function ($el) {
             var self,
                 mce_id;
-            $("textarea.z_editor", $el).each(function () {
+            $("textarea.z_editor,textarea.tinymce", $el).each(function () {
                 if (typeof $(this).tinymce === "function") {
                     self = $(this);
                     setTimeout(function () {
@@ -47,7 +47,7 @@ var z_editor = (function ($) {
         },
 
         save: function ($el) {
-            var tiny = $("textarea.z_editor", $el);
+            var tiny = $("textarea.z_editor,textarea.tinymce", $el);
             if (tiny.length > 0) {
                 if (typeof tiny.tinymce === "function") {
                     tiny.each(function () {
@@ -60,7 +60,7 @@ var z_editor = (function ($) {
         },
 
         remove: function ($el) {
-            $("textarea.z_editor", $el).each(function () {
+            $("textarea.z_editor,textarea.tinymce", $el).each(function () {
                 if (tinyMCE !== undefined) {
                     tinyMCE.execCommand("mceRemoveControl", false, $(this).attr("id"));
                 } else if (typeof $(this).tinymce === "function") {
