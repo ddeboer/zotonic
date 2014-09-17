@@ -25,11 +25,9 @@ var z_editor = (function ($) {
         },
 
         add: function ($el) {
-            var self,
-                mce_id;
             $("textarea.z_editor,textarea.tinymce", $el).each(function () {
                 if (typeof $(this).tinymce === "function") {
-                    self = $(this);
+                    var self = $(this);
                     setTimeout(function () {
                         if (typeof tinyInit === "object") {
                             self.tinymce(tinyInit);
@@ -38,7 +36,7 @@ var z_editor = (function ($) {
                         }
                     }, 200);
                 } else if (typeof tinyMCE === "object") {
-                    mce_id = $(this).attr("id");
+                    var mce_id = $(this).attr("id");
                     setTimeout(function () {
                         tinyMCE.execCommand("mceAddControl", false, mce_id);
                     }, 200);
