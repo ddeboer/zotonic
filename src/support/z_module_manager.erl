@@ -705,16 +705,20 @@ manage_schema(_Module, _Current, undefined, _Context) ->
 
 %% @doc Installing a schema
 manage_schema(Module, undefined, Target, Context) ->
-    F = fun(C) ->
-                case Module:manage_schema(install, C) of
-                    D=#datamodel{} ->
-                        ok = z_datamodel:manage(Module, D, Context);
-                    ok -> ok
-                end,
-                ok = set_db_schema_version(Module, Target, C),
-                ok = z_db:flush(C)
-        end,
-    ok = z_db:transaction(F, Context);
+    SchemaRet = z_db:transaction(
+                    fun(C) ->
+                        Module:manage_schema(install, C)
+                    end,
+                    Context),
+    case SchemaRet of
+        #datamodel{} ->
+            ok = z_datamodel:manage(Module, SchemaRet, Context);
+        ok -> 
+            ok
+    end,
+    ok = set_db_schema_version(Module, Target, Context),
+    z_db:flush(Context),
+    ok;
 
 %% @doc Attempting a schema downgrade.
 manage_schema(Module, Current, Target, _Context) when
@@ -725,16 +729,19 @@ manage_schema(Module, Current, Target, _Context) when
 %% @doc Do a single upgrade step.
 manage_schema(Module, Current, Target, Context) when
       is_integer(Current) andalso is_integer(Target) ->
-    F = fun(C) ->
-                case Module:manage_schema({upgrade, Current+1}, C) of
-                    D=#datamodel{} ->
-                        ok = z_datamodel:manage(Module, D, Context);
-                    ok -> ok
-                end,
-                ok = set_db_schema_version(Module, Current+1, C),
-                ok = z_db:flush(C)
-        end,
-    ok = z_db:transaction(F, Context),
+    SchemaRet = z_db:transaction(
+                    fun(C) ->
+                        Module:manage_schema({upgrade, Current+1}, C)
+                    end,
+                    Context),
+    case SchemaRet of
+        #datamodel{} ->
+            ok = z_datamodel:manage(Module, SchemaRet, Context);
+        ok -> 
+            ok
+    end,
+    ok = set_db_schema_version(Module, Current+1, Context),
+    z_db:flush(Context),
     manage_schema(Module, Current+1, Target, Context);
 
 %% @doc Invalid version numbering
