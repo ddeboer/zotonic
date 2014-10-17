@@ -59,7 +59,7 @@
 	<div class="row-fluid meta-extra" id="meta-extra" style="display:none">
 		<ul class="nav nav-tabs">
 			{% block meta_tabs %}{% endblock %}
-			{% if m.modules.info.mod_translation.enabled %}
+			{% if m.modules.active.mod_translation %}
 				<li><a href="#meta-language" data-toggle="tab">{_ Language _}</a></li>
 			{% endif %}
 			<li><a href="#meta-acl" data-toggle="tab">{_ Access control _}</a></li>
