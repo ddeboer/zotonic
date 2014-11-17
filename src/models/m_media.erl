@@ -302,8 +302,7 @@ maybe_duplicate_preview(Ms, Context) ->
                             ],
                             {ok, ?DEBUG(Ms2)};
                         {error, _} = Error ->
-                            lager:error(z_context:lager_md(Context),
-                                        "Duplicate preview: error ~p for preview file ~p",
+                            lager:error("Duplicate preview: error ~p for preview file ~p",
                                         [Error, Filename]),
                             Ms1 = proplists:delete(preview_filename, 
                                     proplists:delete(is_deletable_preview, Ms)),

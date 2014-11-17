@@ -19,6 +19,7 @@
 
 -export([
     answer/3,
+    prep_chart/3,
     prep_answer_header/2,
     prep_answer/3,
     prep_block/2,
@@ -41,6 +42,9 @@ to_block(Q) ->
 answer(_Block, _Answers, _Context) ->
     {ok, none}.
 
+prep_chart(_Block, _Ans, _Context) ->
+    undefined.
+
 prep_answer_header(_Q, _Context) ->
     [].
 
@@ -58,17 +62,20 @@ test(Q, Answers, Context) ->
         _ -> eval(proplists:get_value(condition2, Q), proplists:get_value(target2, Q), Answers, Context)
     end.
     
-eval(undefined, _, _, _Context) ->
-    ok;
 eval(_, undefined, _, _Context) ->
     ok;
+eval(undefined, Target, _, _Context) ->
+    case z_string:trim(Target) of
+        <<>> -> ok;
+        T -> {jump, T}
+    end;
 eval(Expr, Target, Answers, Context) ->
     eval1(z_string:trim(Expr), z_string:trim(Target), Answers, Context).
 
-eval1(<<>>, _, _, _Context) ->
-    ok;
 eval1(_, <<>>, _, _Context) ->
     ok;
+eval1(<<>>, Target, _, _Context) ->
+    {jump, Target};
 eval1(Expr, Target, Answers, Context) ->
     case z_expression:parse(z_html:unescape(Expr)) of
         {ok, Tree} ->
