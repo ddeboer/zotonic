@@ -53,8 +53,8 @@
                 <h2>
                     {% block title %}{% endblock %}
                     {% if q.qs %}
-                        {% button text=_"show all" class="btn btn-default btn-xs" action={redirect dispatch="admin_overview_rsc" qcat=q.qcat} %}
-                        <input type="hidden" name="qs" value="{{ q.qs|escape }}" />
+                        {% button text=_"show all" class="btn btn-default btn-xs" 
+                                  action={redirect dispatch="admin_overview_rsc" qcat=q.qcat qquery=q.qquery} %}
                     {% endif %}
                 </h2>
                 {% if q.qquery and not q.qcat and m.rsc[q.qquery].summary %}
