@@ -605,8 +605,18 @@ div.modal .modal-footer .pull-left {
 .navbar-right {
   margin-right: 15px;
 }
-.navbar-nav > li > a {
+.navbar-nav > li > a,
+.navbar-nav > li > .dropdown-menu > li > a {
   text-shadow: 0 1px 0 rgba(0,0,0,.1);
+}
+.navbar-default .navbar-toggle {
+  border-color: rgba(255, 255, 255, 0.7);
+}
+.navbar-default .navbar-toggle .icon-bar {
+  background-color: rgba(255, 255, 255, 0.7);
+}
+body.navbar-menu-open {
+  overflow: hidden;
 }
 input[type="text"].rtl,
 textarea.rtl {
