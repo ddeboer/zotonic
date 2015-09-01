@@ -26,7 +26,7 @@
 %% interface functions
 -export([
 	observe_dropbox_file/2,
-	can_handle/2,
+	can_handle/3,
 	event/2,
     inspect_file/1,
     manage_schema/2
@@ -46,7 +46,7 @@ observe_dropbox_file(#dropbox_file{filename=F}, Context) ->
         ".csv" ->
             %% Correct file type, see if we can handle the file.
             %% Either a module has a definition or there are correct header lines.
-            case can_handle(F, Context) of
+            case can_handle(F, F, Context) of
                 {ok, Definition} ->
                     handle_spawn(Definition, false, z_acl:sudo(Context)), true;
                 ok ->
@@ -73,7 +73,7 @@ event(#submit{message={csv_upload, []}}, Context) ->
             {ok, _} = file:copy(TmpFile, Target),
             ok = file:delete(TmpFile),
 
-            Context2 = case can_handle(Target, Context) of
+            Context2 = case can_handle(OriginalFilename, Target, Context) of
                            {ok, Definition} ->
                                handle_spawn(Definition, IsReset, Context),
                                z_render:growl(?__("Please hold on while the file is importing. You will get a notification when it is ready.", Context), Context);
@@ -123,12 +123,12 @@ to_importing_dir(Def, Context) ->
 
 
 %% @doc Check if we can import this file
-can_handle(Filename, Context) ->
-    case z_notifier:first(#import_csv_definition{basename=filename:basename(Filename), filename=Filename}, Context) of
+can_handle(OriginalFilename, DataFile, Context) ->
+    case z_notifier:first(#import_csv_definition{basename=filename:basename(OriginalFilename), filename=DataFile}, Context) of
         {ok, #import_data_def{colsep=ColSep, skip_first_row=SkipFirstRow, columns=Columns, importdef=ImportDef}} ->
             {ok, #filedef{
-                        filename=Filename, 
-                        file_size=filelib:file_size(Filename), 
+                        filename=DataFile, 
+                        file_size=filelib:file_size(DataFile), 
                         colsep=ColSep, 
                         columns=Columns,
                         skip_first_row=SkipFirstRow,
@@ -139,7 +139,7 @@ can_handle(Filename, Context) ->
         {error, _} = Error ->
             Error;
         undefined ->
-            case inspect_file(Filename) of
+            case inspect_file(DataFile) of
                 {ok, #filedef{columns=Cols} = FD} ->
                     case lists:member("name", Cols) andalso lists:member("category", Cols) of
                         true -> 
@@ -161,17 +161,19 @@ inspect_file(Filename) ->
         {ok, Device} ->
             FSize = filelib:file_size(Filename),
             case file:read(Device, min(4096,FSize)) of
-                {ok, Data} ->
+                {ok, Data0} ->
                     file:close(Device),
+                    Data = utf8(Data0),
                     case fetch_column_defs(Data) of
                         {ok, Cols, Sep} ->
+                            Cols1 = [ to_property_name(Col) || Col <- Cols ],
                             {ok, #filedef{
                                         filename=Filename, 
                                         file_size=FSize, 
                                         colsep=Sep, 
-                                        columns=Cols,
+                                        columns=Cols1,
                                         skip_first_row=true,
-                                        importdef=cols2importdef(Cols)
+                                        importdef=cols2importdef(Cols1)
                                 }};
                         {error, _} = Error ->
                             Error
@@ -184,6 +186,18 @@ inspect_file(Filename) ->
             Error
     end.
 
+utf8(S) ->
+    case z_string:sanitize_utf8(S) of
+        S ->
+            S;
+        Stripped -> 
+            case eiconv:convert("Windows-1250", S) of
+                {ok, Utf8} -> Utf8;
+                {error, _} -> Stripped
+            end
+    end.
+
+
 %% @doc Check if the first row is made up of column headers.
 %% The file must have at least a name and a category column.
 fetch_column_defs(<<>>) ->
@@ -193,10 +207,12 @@ fetch_column_defs(B) ->
         {ok, Line} ->
             {ok, Tabs} = parse_line(Line, $\t),
             {ok, Comma} = parse_line(Line, $,),
-            {Cols, Sep} = case length(Tabs) > length(Comma) of
-                              true -> {Tabs, $\t};
-                              false -> {Comma, $,}
-                          end,
+            {ok, SCol} = parse_line(Line, $;),
+            {_, Cols, Sep} = lists:last(lists:sort([
+                                    {length(Tabs), Tabs, $\t},
+                                    {length(Comma), Comma, $,},
+                                    {length(SCol), SCol, $;}
+                                ])),
             {ok, [ z_convert:to_list(z_string:trim(C)) || C <- Cols ], Sep};
         _ ->
             {error, invalid_csv_file}
@@ -234,8 +250,7 @@ parse_line([C|Rest], Sep, Col, Cols) ->
 
 %% @doc Map column names to names that can be handled by the import routines and m_rsc:update/3
 cols2importdef(Cols) ->
-    Cols1 = [ to_property_name(Col) || Col <- Cols ],
-    ImportDefMap = [ cols2importdef_map(Col) || Col <- unique(Cols1,[]) ],
+    ImportDefMap = [ cols2importdef_map(Col) || Col <- unique(Cols,[]) ],
     [
         {
             % Field mapping
@@ -251,8 +266,8 @@ cols2importdef(Cols) ->
         }
     ].
 
-to_property_name("block."++_ = BlockField) ->
-    [ case C of $. -> $-; _ -> C end || C <- BlockField ];
+to_property_name("block." ++ B) ->
+    "blocks."++B;
 to_property_name(Name) ->
     Name.
 

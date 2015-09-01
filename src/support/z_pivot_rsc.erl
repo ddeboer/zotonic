@@ -307,10 +307,12 @@ do_poll(Context) ->
         {TaskId, Module, Function, _Key, Args} ->
             try
                 case erlang:apply(Module, Function, z_convert:to_list(Args) ++ [Context]) of
-                    {delay, Seconds} ->
+                    {delay, Seconds} when is_integer(Seconds) ->
                         Due = calendar:gregorian_seconds_to_datetime(
                                 calendar:datetime_to_gregorian_seconds(calendar:universal_time()) + Seconds
                               ),
+                        z_db:q("update pivot_task_queue set due = $1 where id = $2", [Due, TaskId], Context);
+                    {delay, Due} when is_tuple(Due) ->
                         z_db:q("update pivot_task_queue set due = $1 where id = $2", [Due, TaskId], Context);
                     _OK ->
                         z_db:q("delete from pivot_task_queue where id = $1", [TaskId], Context)
@@ -448,8 +450,8 @@ pivot_resource(Id, Context) ->
         {pivot_date_start_month_day, proplists:get_value(pivot_date_start_month_day, PropsPrePivoted)},
         {pivot_date_end_month_day, proplists:get_value(pivot_date_end_month_day, PropsPrePivoted)},
         {pivot_title, proplists:get_value(pivot_title, PropsPrePivoted)},
-        {pivot_location_lat, z_convert:to_float(proplists:get_value(location_lat, R))},
-        {pivot_location_lng, z_convert:to_float(proplists:get_value(location_lng, R))}
+        {pivot_location_lat, get_float(location_lat, R)},
+        {pivot_location_lng, get_float(location_lng, R)}
     ],
     
     KVsFolded = z_notifier:foldr(#pivot_fields{id=Id, rsc=R}, KVs, Context),
@@ -488,39 +490,44 @@ pivot_resource(Id, Context) ->
     ok.
 
 
-    %% Make the setweight(to_tsvector()) parts of the update statement
-    to_tsv([], _Level, Args) ->
-        {"tsvector('')", Args};
-    to_tsv(List, Level, Args) -> 
-        {Sql1, Args1} = lists:foldl(
-            fun ({Lang,Text}, {Sql, As}) -> 
-                N   = length(As) + 1,
-                As1 = As ++ [Text],
-                {[["setweight(to_tsvector('pg_catalog.",pg_lang(Lang),"', $",integer_to_list(N),"), '",Level,"')"] | Sql], As1}
-            end,
-            {[], Args},
-            List),
-    
-        {z_utils:combine(" || ", Sql1), Args1}.
+%% Make the setweight(to_tsvector()) parts of the update statement
+to_tsv([], _Level, Args) ->
+    {"tsvector('')", Args};
+to_tsv(List, Level, Args) -> 
+    {Sql1, Args1} = lists:foldl(
+        fun ({Lang,Text}, {Sql, As}) -> 
+            N   = length(As) + 1,
+            As1 = As ++ [Text],
+            {[["setweight(to_tsvector('pg_catalog.",pg_lang(Lang),"', $",integer_to_list(N),"), '",Level,"')"] | Sql], As1}
+        end,
+        {[], Args},
+        List),
+    {z_utils:combine(" || ", Sql1), Args1}.
             
-
     %      new.tsv := 
     %        setweight(to_tsvector('pg_catalog.dutch', coalesce(new.title_nl,'')), 'A') || 
     %        setweight(to_tsvector('pg_catalog.dutch', coalesce(new.desc_nl,'')),  'D') ||
     %        setweight(to_tsvector('pg_catalog.english', coalesce(new.title_en,'')), 'A') || 
     %        setweight(to_tsvector('pg_catalog.english', coalesce(new.desc_en,'')),  'D'); 
 
+get_float(K, Ps) ->
+    case proplists:get_value(K, Ps) of
+        undefined -> undefined;
+        L when is_list(L); is_binary(L) -> z_convert:to_float(iolist_to_binary(L));
+        F when is_float(F) -> F;
+        N when is_integer(N) -> N * 1.0
+    end.
 
 truncate(undefined, _Len) -> undefined;
-truncate(S, Len) -> iolist_to_binary(z_string:to_lower(truncate(S, Len, Len))).
+truncate(S, Len) -> iolist_to_binary(z_string:to_lower(truncate_1(S, Len, Len))).
     
-    truncate(_S, 0, _Bytes) ->
-        "";
-    truncate(S, Utf8Len, Bytes) ->
-        case z_string:truncate(S, Utf8Len, "") of
-            T when length(T) > Bytes -> truncate(T, Utf8Len-1, Bytes);
-            L -> L
-        end.
+truncate_1(_S, 0, _Bytes) ->
+    "";
+truncate_1(S, Utf8Len, Bytes) ->
+    case z_string:truncate(S, Utf8Len, "") of
+        T when length(T) > Bytes -> truncate_1(T, Utf8Len-1, Bytes);
+        L -> L
+    end.
     
 
 %% @doc Fetch the date range from the record

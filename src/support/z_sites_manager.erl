@@ -31,12 +31,15 @@
     get_sites/0,
     get_sites_all/0,
     get_sites_status/0,
+    get_site_status/1,
     get_site_contexts/0,
     get_site_config/1,
     get_fallback_site/0,
     get_builtin_sites/0,
     all_sites_running/0, all_sites_running/1,
+    module_loaded/1,
     info/0,
+    foreach/1,
 
     stop/1,
     start/1,
@@ -50,6 +53,7 @@
 
 -define(SITES_START_TIMEOUT,  3600000).  % 1 hour
 
+-type site_status() :: waiting | running | retrying | failed | stopped.
 
 %%====================================================================
 %% API
@@ -76,6 +80,12 @@ get_sites() ->
 get_sites_all() ->
     gen_server:call(?MODULE, get_sites_all). 
 
+%% @doc Get the status of a particular site
+get_site_status(Site) when is_atom(Site) ->
+    gen_server:call(?MODULE, {site_status, Site});
+get_site_status(#context{host=Site}) ->
+    gen_server:call(?MODULE, {site_status, Site}).
+
 %% @doc Return a list of all sites and their status.
 -spec get_sites_status() -> list().
 get_sites_status() ->
@@ -100,6 +110,17 @@ all_sites_running([{State, Count}| _Rest], true) when Count > 0 andalso State =/
     false;
 all_sites_running([_Info|Rest], true) ->
     all_sites_running(Rest, true).
+
+%% @doc Do something for all sites that are currently running.
+foreach(Fun) ->
+    lists:foreach(fun(Site) ->
+                    try
+                        Fun(z_context:new(Site))
+                    catch
+                        _:_ -> ok
+                    end
+                  end,
+                  get_sites()).
 
 %% @doc Return a list of contexts initialized for all active sites.
 -spec get_site_contexts() -> [ #context{} ].
@@ -142,6 +163,11 @@ restart([Node, Site]) ->
     rpc:call(Node, ?MODULE, restart, [Site]);
 restart(Site) ->
     gen_server:cast(?MODULE, {restart, Site}).
+
+%% @doc Tell the sites manager that a module was loaded, check
+%%      changes to observers, schema.
+module_loaded(Module) ->
+    gen_server:cast(?MODULE, {module_loaded, Module}).
 
 
 %%====================================================================
@@ -199,6 +225,11 @@ handle_call(info, _From, State) ->
     Grouped = z_supervisor:which_children(State#state.sup),
     {reply, info(Grouped), State};
 
+%% @doc Are all sites running?
+handle_call({site_status, Site}, _From, State) ->
+    SiteStatus = handle_site_status(Site, State),
+    {reply, SiteStatus, State};
+
 %% @doc Trap unknown calls
 handle_call(Message, _From, State) ->
     {stop, {unknown_call, Message}, State}.
@@ -238,6 +269,10 @@ handle_cast({supervisor_child_stopped, Child, SitePid}, State) ->
     z_sites_dispatcher:update_dispatchinfo(),
     {noreply, State};
 
+%% @doc Handle load of a module, check observers and schema
+handle_cast({module_loaded, Module}, State) ->
+    do_load_module(Module, State),
+    {noreply, State};
 
 %% @doc Trap unknown casts
 handle_cast(Message, State) ->
@@ -247,8 +282,10 @@ handle_cast(Message, State) ->
 %% @spec handle_info(Info, State) -> {noreply, State} |
 %%                                       {noreply, State, Timeout} |
 %%                                       {stop, Reason, State}
+
 %% @doc Handling all non call/cast messages
 handle_info(_Info, State) ->
+    ?DEBUG({z_sites_manager, _Info}),
     {noreply, State}.
 
 
@@ -270,6 +307,20 @@ code_change(_OldVsn, State, _Extra) ->
 %%====================================================================
 %% support functions
 %%====================================================================
+
+%% @doc Get the running status of a particular site
+-spec handle_site_status(atom(), #state{}) -> {ok, site_status()} | {error, notfound}.
+handle_site_status(Site, State) ->
+    Grouped = z_supervisor:which_children(State#state.sup),
+    handle_site_status_1(Site, Grouped).
+
+handle_site_status_1(_Site, []) ->
+    {error, notfound};
+handle_site_status_1(Site, [{Status, Sites}|Statuses]) ->
+    case lists:keymember(Site, 1, Sites) of
+        true -> {ok, Status};
+        false -> handle_site_status_1(Site, Statuses)
+    end.
 
 %% @doc Get the file path of the config file for a site.
 get_site_config_file(Site) ->
@@ -415,6 +466,44 @@ is_testsandbox() ->
     [Base|_] = string:tokens(atom_to_list(node()), "@"),
     case lists:last(string:tokens(Base, "_")) of
         "testsandbox" -> true;
+        _ -> false
+    end.
+
+
+%% @doc Handle the load of a module by the code_server, maybe reattach observers.
+do_load_module(Module, State) ->
+    lager:debug("z_sites_manager: reloading ~p", [Module]),
+    do_load_module(is_running_site(Module, State), is_module(Module), Module, State).
+
+do_load_module(true, _IsModule, Site, _State) ->
+    try
+        z_module_manager:module_reloaded(Site, z_context:new(Site))
+    catch
+        _:_ ->
+            ok
+    end;
+do_load_module(false, true, Module, State) ->
+    Grouped = z_supervisor:which_children(State#state.sup),
+    Running = proplists:get_value(running, Grouped, []),
+    lists:foreach(fun(SiteChild) ->
+                    try
+                        Site = element(1, SiteChild),
+                        z_module_manager:module_reloaded(Module, z_context:new(Site))
+                    catch
+                        _:_ ->
+                            ok
+                    end
+                  end,
+                  Running);
+do_load_module(false, false, _Module, _State) ->
+    ok.
+
+is_running_site(Module, State) ->
+    {ok, running} =:= handle_site_status(Module, State).
+
+is_module(Module) ->
+    case atom_to_list(Module) of
+        "mod_"++_ -> true;
         _ -> false
     end.
 

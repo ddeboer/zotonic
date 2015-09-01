@@ -67,8 +67,8 @@ ul.blocks.ui-sortable .widget-header:before {
  * -------------------------- */
 @font-face {
   font-family: 'FontAwesome';
-  src: url('../fonts/fontawesome-webfont.eot?v=4.2.0');
-  src: url('../fonts/fontawesome-webfont.eot?#iefix&v=4.2.0') format('embedded-opentype'), url('../fonts/fontawesome-webfont.woff?v=4.2.0') format('woff'), url('../fonts/fontawesome-webfont.ttf?v=4.2.0') format('truetype'), url('../fonts/fontawesome-webfont.svg?v=4.2.0#fontawesomeregular') format('svg');
+  src: url('/lib/font-awesome-4/fonts/fontawesome-webfont.eot?v=4.2.0');
+  src: url('/lib/font-awesome-4/fonts/fontawesome-webfont.eot?#iefix&v=4.2.0') format('embedded-opentype'), url('/lib/font-awesome-4/fonts/fontawesome-webfont.woff?v=4.2.0') format('woff'), url('/lib/font-awesome-4/fonts/fontawesome-webfont.ttf?v=4.2.0') format('truetype'), url('/lib/font-awesome-4/fonts/fontawesome-webfont.svg?v=4.2.0#fontawesomeregular') format('svg');
   font-weight: normal;
   font-style: normal;
 }
@@ -95,9 +95,9 @@ body.wait .btn {
 }
 hr {
   background-color: #ddd;
-  border-top-color: #d0d0d0;
+  border: none;
+  height: 1px;
   margin: 10px 0;
-  width: 100%;
 }
 p {
   margin: 0 0 15px 0;
@@ -162,6 +162,10 @@ table.do_adminLinkedTable .admin-list-thumb > span,
   -ms-hyphens: auto;
   hyphens: auto;
 }
+p .z-btn-help {
+  display: inline;
+  vertical-align: text-bottom;
+}
 .text-muted {
   color: #999999;
 }
@@ -179,6 +183,25 @@ table.do_adminLinkedTable .admin-list-thumb > span,
 }
 .btn.btn-sm .glyphicon {
   top: 1px;
+}
+.nav .dropdown-menu > li > a.has-icon,
+.nav .dropdown-toggle.has-icon {
+  position: relative;
+  padding-left: 34px;
+}
+.nav .dropdown-menu > li > a.has-icon .z-icon,
+.nav .dropdown-toggle.has-icon .z-icon,
+.nav .dropdown-menu > li > a.has-icon .zotonic-logo,
+.nav .dropdown-toggle.has-icon .zotonic-logo {
+  position: absolute;
+  left: 15px;
+  top: 50%;
+  height: 14px;
+  width: 14px;
+  margin-top: -7px;
+}
+.navbar-form .form-control {
+  width: 8em;
 }
 .dropdown-menu.admin-dropdown-menu-has-icons > li > a {
   padding-left: 40px;
@@ -210,7 +233,8 @@ table.do_adminLinkedTable .admin-list-thumb > span,
 .well.z-button-row {
   padding: 15px 15px 11px 15px;
 }
-.well.z-button-row > *,
+.well.z-button-row > .btn,
+.well.z-button-row > a[href],
 .well.z-button-row .btn + .btn {
   margin: 0 4px 4px 0;
 }
@@ -248,6 +272,11 @@ button.close {
 @media (min-width: 768px) {
   .form-horizontal .control-label {
     margin-bottom: 5px;
+  }
+}
+@media (min-width: 992px) {
+  .navbar-form .form-control {
+    width: 10em;
   }
 }
 .z-btn-remove {
@@ -482,6 +511,9 @@ textarea.form-field-error,
 input.form-field-error {
   background: #ffeeee;
 }
+input.form-control[type=file] {
+  height: auto;
+}
 img.thumb {
   padding: 0;
   -webkit-border-radius: 0;
@@ -589,8 +621,14 @@ div.modal div.tab-content {
 div.modal .nav.nav-pills {
   margin-bottom: 15px;
 }
+div.modal .modal-body > :first-child {
+  margin-top: 0;
+}
 div.modal .modal-footer .pull-left {
   margin-left: 0;
+}
+#menu-editor .widget-header {
+  height: auto;
 }
 .navbar-brand:hover,
 .navbar-brand:hover .zotonic-logo {
@@ -602,8 +640,18 @@ div.modal .modal-footer .pull-left {
 .navbar-right {
   margin-right: 15px;
 }
-.navbar-nav > li > a {
+.navbar-nav > li > a,
+.navbar-nav > li > .dropdown-menu > li > a {
   text-shadow: 0 1px 0 rgba(0,0,0,.1);
+}
+.navbar-default .navbar-toggle {
+  border-color: rgba(255, 255, 255, 0.7);
+}
+.navbar-default .navbar-toggle .icon-bar {
+  background-color: rgba(255, 255, 255, 0.7);
+}
+body.navbar-menu-open {
+  overflow: hidden;
 }
 input[type="text"].rtl,
 textarea.rtl {
@@ -1014,6 +1062,10 @@ ul.tree-list.tree-list-menu li.menu-item span.category {
   position: relative;
   padding: 0 15px 0 15px;
 }
+.widget .widget-content hr {
+  margin-left: -15px;
+  margin-right: -15px;
+}
 .widget .widget-content .widget-content {
   padding: 0;
 }
@@ -1048,11 +1100,6 @@ ul.tree-list.tree-list-menu li.menu-item span.category {
 .widget .widget-content.tab-content {
   padding-top: 15px;
 }
-.widget .widget-content .z-btn-help {
-  position: absolute;
-  top: 15px;
-  right: 15px;
-}
 .widget .widget-content .rsc-item-wrapper {
   margin: 0 0 15px 0;
 }
@@ -1080,6 +1127,10 @@ ul.tree-list.tree-list-menu li.menu-item span.category {
   background-image: -webkit-linear-gradient(top, #e0e0e0 0%, #f2f2f2 100%);
   background-image: linear-gradient(to bottom, #e0e0e0 0%, #f2f2f2 100%);
   filter: progid:DXImageTransform.Microsoft.gradient(startColorstr='#e0e0e0', endColorstr='#f2f2f2', GradientType=0);
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
 }
 .widget .widget-header .z-btn-remove {
   display: block;
@@ -1088,15 +1139,30 @@ ul.tree-list.tree-list-menu li.menu-item span.category {
   right: 41px;
   z-index: 1;
 }
+.widget .widget-header .widget-header-tools {
+  float: right;
+  font-size: 0;
+  text-align: right;
+}
+.widget .widget-header .widget-header-tools .z-btn-help,
+.widget .widget-header .widget-header-tools .z-icon,
+.widget .widget-header .widget-header-tools .zotonic-logo {
+  display: inline-block;
+  margin-left: 12px;
+}
+.widget .widget-header .widget-header-tools .z-btn-help {
+  color: #bbbbbb;
+}
 .widget .widget-header .z-icon-plus,
 .widget .widget-header .z-icon-minus {
-  display: block;
-  text-align: center;
   font-size: 16px;
   width: 16px;
   height: 16px;
   line-height: 16px;
   text-shadow: none;
+}
+.widget.widget-expanded .widget-header .widget-header-tools .z-btn-help {
+  color: #069cd1;
 }
 .widget h5 {
   display: block;

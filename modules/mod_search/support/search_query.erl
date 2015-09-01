@@ -75,6 +75,7 @@ parse_query_text(Text) ->
 % table overflows.
 request_arg("authoritative")       -> authoritative;
 request_arg("cat")                 -> cat;
+request_arg("cat_exact")           -> cat_exact;
 request_arg("cat_exclude")         -> cat_exclude;
 request_arg("creator_id")          -> creator_id;
 request_arg("modifier_id")         -> modifier_id;
@@ -104,6 +105,7 @@ request_arg("sort")                -> sort;
 request_arg("text")                -> text;
 request_arg("upcoming")            -> upcoming;
 request_arg("ongoing")             -> ongoing;
+request_arg("finished")            -> finished;
 request_arg(Term)                  -> throw({error, {unknown_query_term, Term}}).
 
 
@@ -125,16 +127,21 @@ parse_query([], _Context, Result) ->
 parse_query([{cat, Cats}|Rest], Context, Result) ->
     Cats1 = assure_categories(Cats, Context),
     Cats2 = add_or_append("rsc", Cats1, Result#search_sql.cats),
-    Tables1 = Result#search_sql.tables,
-    parse_query(Rest, Context, Result#search_sql{cats=Cats2, tables=Tables1});
+    parse_query(Rest, Context, Result#search_sql{cats=Cats2});
 
 %% cat_exclude=categoryname
 %% Filter results outside a certain category.
 parse_query([{cat_exclude, Cats}|Rest], Context, Result) ->
     Cats1 = assure_categories(Cats, Context),
     Cats2 = add_or_append("rsc", Cats1, Result#search_sql.cats_exclude),
-    Tables1 = Result#search_sql.tables,
-    parse_query(Rest, Context, Result#search_sql{cats_exclude=Cats2, tables=Tables1});
+    parse_query(Rest, Context, Result#search_sql{cats_exclude=Cats2});
+
+%% cat_exact=categoryname
+%% Filter results excactly of a category (excluding subcategories)
+parse_query([{cat_exact, Cats}|Rest], Context, Result) ->
+    Cats1 = assure_categories(Cats, Context),
+    Cats2 = add_or_append("rsc", Cats1, Result#search_sql.cats_exact),
+    parse_query(Rest, Context, Result#search_sql{cats_exact=Cats2});
 
 parse_query([{filter, R}|Rest], Context, Result) ->
     Result1 = add_filters(R, Result),
@@ -153,7 +160,9 @@ parse_query([{id_exclude, _Id}|Rest], Context, Result)  ->
 %% hassubject=[id]
 %% Give all things which have an incoming edge to Id
 parse_query([{hassubject, Id}|Rest], Context, Result) when is_integer(Id); is_binary(Id) ->
-    parse_query([{hassubject, [Id]}|Rest], Context, Result);
+    parse_query([{hassubject, maybe_split_list(Id)}|Rest], Context, Result);
+parse_query([{hassubject, [$[|_] = Arg}|Rest], Context, Result) ->
+    parse_query([{hassubject, maybe_split_list(Arg)}|Rest], Context, Result);
 parse_query([{hassubject, [Id]}|Rest], Context, Result) ->
     {A, Result1} = add_edge_join("object_id", Result),
     {Arg, Result2} = add_arg(m_rsc:rid(Id, Context), Result1),
@@ -182,7 +191,9 @@ parse_query([{hassubject, Id}|Rest], Context, Result) when is_list(Id) ->
 %% hasobject=[id]
 %% Give all things which have an outgoing edge to Id
 parse_query([{hasobject, Id}|Rest], Context, Result) when is_integer(Id); is_binary(Id) ->
-    parse_query([{hasobject, [Id]}|Rest], Context, Result);
+    parse_query([{hasobject, maybe_split_list(Id)}|Rest], Context, Result);
+parse_query([{hasobject, [$[|_] = Arg}|Rest], Context, Result) ->
+    parse_query([{hasobject, maybe_split_list(Arg)}|Rest], Context, Result);
 parse_query([{hasobject, [Id]}|Rest], Context, Result) ->
     {A, Result1} = add_edge_join("subject_id", Result),
     {Arg, Result2} = add_arg(m_rsc:rid(Id,Context), Result1),
@@ -291,6 +302,14 @@ parse_query([{ongoing, Boolean}|Rest], Context, Result) ->
               end,
     parse_query(Rest, Context, Result1);
 
+%% finished
+%% Filter on items whose start date lies in the past
+parse_query([{finished, Boolean}|Rest], Context, Result) ->
+    Result1 = case z_convert:to_bool(Boolean) of
+                  true -> add_where("rsc.pivot_date_start < current_date", Result);
+                  false -> Result
+              end,
+    parse_query(Rest, Context, Result1);
 
 %% authoritative={true|false}
 %% Filter on items which are authoritative or not
@@ -550,6 +569,8 @@ assure_categories(Name, Context) ->
                 Cats1).
 
 %% Flatten eventual lists of categories
+assure_cat_flatten(Name) when not is_list(Name) ->
+    assure_cat_flatten([Name]);
 assure_cat_flatten(Names) when is_list(Names) ->
     lists:flatten([  
         case is_list(N) of
@@ -625,6 +646,37 @@ map_filter_operator(gte) -> ">=";
 map_filter_operator('>=') -> ">=";
 map_filter_operator(lte) -> "<=";
 map_filter_operator('<=') -> "<=";
+map_filter_operator("=") -> "=";
+map_filter_operator("<>") -> "<>";
+map_filter_operator(">") -> ">";
+map_filter_operator("<") -> "<";
+map_filter_operator(">=") -> ">=";
+map_filter_operator("<=") -> "<=";
+map_filter_operator(<<"=">>) -> "=";
+map_filter_operator(<<"<>">>) -> "<>";
+map_filter_operator(<<">">>) -> ">";
+map_filter_operator(<<"<">>) -> "<";
+map_filter_operator(<<">=">>) -> ">=";
+map_filter_operator(<<"<=">>) -> "<=";
 map_filter_operator(Op) -> throw({error, {unknown_filter_operator, Op}}).
 
-                                                       
+
+% Convert an expression like [123,hasdocument]
+maybe_split_list(Id) when is_integer(Id) ->
+    [Id];
+maybe_split_list(<<"[", Rest/binary>>) ->
+    split_list(Rest);
+maybe_split_list([$[|Rest]) ->
+    split_list(z_conver:to_binary(Rest));
+maybe_split_list(Other) ->
+    [Other].
+
+split_list(Bin) ->
+    Bin1 = binary:replace(Bin, <<"]">>, <<>>),
+    Parts = binary:split(Bin1, <<",">>, [global]),
+    [ unquot(z_string:trim(P)) || P <- Parts ].
+
+unquot(<<C, Rest/binary>>) when C =:= $'; C =:= $"; C =:= $` ->
+    binary:replace(Rest, <<C>>, <<>>);
+unquot(B) ->
+    B.

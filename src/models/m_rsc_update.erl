@@ -31,6 +31,7 @@
     flush/2,
     
     normalize_props/3,
+    normalize_props/4,
 
     delete_nocheck/2,
     props_filter/3,
@@ -243,7 +244,8 @@ update_result({ok, NewId, OldProps, NewProps, OldCatList, RenumberCats}, #rscupd
     % Flush all cached content that is depending on one of the updated categories
     z_depcache:flush(NewId, Context),
     NewCatList = m_rsc:is_a(NewId, Context),
-    [ z_depcache:flush(Cat, Context) || Cat <- lists:usort(NewCatList ++ OldCatList) ],
+    Cats = lists:usort(NewCatList ++ OldCatList),
+    [ z_depcache:flush(Cat, Context) || Cat <- Cats ],
 
      % Notify that a new resource has been inserted, or that an existing one is updated
     Note = #rsc_update_done{
@@ -406,12 +408,15 @@ update_transaction_fun_db(RscUpd, Id, Props, Raw, IsABefore, IsCatInsert, Contex
 
 
 %% @doc Recombine all properties from the ones that are posted by a form.
-%% @todo Move this one layer up, to the routines receiving the posted data.
 normalize_props(Id, Props, Context) ->
+    normalize_props(Id, Props, [], Context).
+
+normalize_props(Id, Props, Options, Context) ->
     DateProps = recombine_dates(Id, Props, Context),
     TextProps = recombine_languages(DateProps, Context),
     BlockProps = recombine_blocks(TextProps, Props, Context),
-    [ {map_property_name(P), V} || {P, V} <- BlockProps ].
+    IsImport = proplists:get_value(is_import, Options, false),
+    [ {map_property_name(IsImport, P), V} || {P, V} <- BlockProps ].
 
 
 set_if_not_import(true, _K, _V, Props) ->
@@ -455,18 +460,30 @@ preflight_check(_Id, [], _Context) ->
     ok;
 preflight_check(Id, [{name, Name}|T], Context) when Name =/= undefined ->
     case z_db:q1("select count(*) from rsc where name = $1 and id <> $2", [Name, Id], Context) of
-        0 ->  preflight_check(Id, T, Context);
-        _N -> throw({error, duplicate_name})
+        0 -> 
+            preflight_check(Id, T, Context);
+        _N ->
+            lager:warning("[~p] Trying to insert duplicate name ~p", 
+                          [z_context:site(Context), Name]), 
+            throw({error, duplicate_name})
     end;
 preflight_check(Id, [{page_path, Path}|T], Context) when Path =/= undefined ->
     case z_db:q1("select count(*) from rsc where page_path = $1 and id <> $2", [Path, Id], Context) of
-        0 ->  preflight_check(Id, T, Context);
-        _N -> throw({error, duplicate_page_path})
+        0 ->
+            preflight_check(Id, T, Context);
+        _N ->
+            lager:warning("[~p] Trying to insert duplicate page_path ~p", 
+                          [z_context:site(Context), Path]), 
+            throw({error, duplicate_page_path})
     end;
 preflight_check(Id, [{uri, Uri}|T], Context) when Uri =/= undefined ->
     case z_db:q1("select count(*) from rsc where uri = $1 and id <> $2", [Uri, Id], Context) of
-        0 ->  preflight_check(Id, T, Context);
-        _N -> throw({error, duplicate_uri})
+        0 ->
+            preflight_check(Id, T, Context);
+        _N ->
+            lager:warning("[~p] Trying to insert duplicate uri ~p", 
+                          [z_context:site(Context), Uri]), 
+            throw({error, duplicate_uri})
     end;
 preflight_check(Id, [{'query', Query}|T], Context) ->
     Valid = case m_rsc:is_a(Id, 'query', Context) of
@@ -564,10 +581,8 @@ props_filter([{page_path, Path}|T], Acc, Context) ->
                 Empty when Empty == undefined; Empty == []; Empty == <<>> ->
                     props_filter(T, [{page_path, undefined} | Acc], Context);
                 _ ->
-                    case [$/ | string:strip(z_utils:url_path_encode(Path), both, $/)] of
-                        [] -> props_filter(T, [{page_path, undefined} | Acc], Context);
-                        P  -> props_filter(T, [{page_path, P} | Acc], Context)
-                    end
+                    P = [ $/ | string:strip(z_utils:url_path_encode(Path), both, $/) ],
+                    props_filter(T, [{page_path, P} | Acc], Context)
             end;
         false ->
             props_filter(T, Acc, Context)
@@ -629,12 +644,19 @@ props_filter([{category_id, CatId}|T], Acc, Context) ->
     props_filter(T, [{category_id, z_convert:to_integer(CatId)}|Acc], Context);
 
 props_filter([{Location, P}|T], Acc, Context) when Location =:= location_lat; Location =:= location_lng ->
-    case catch z_convert:to_float(P) of
-        X when is_float(X) -> 
-            props_filter(T, [{Location, X} | Acc], Context);
-        _ ->
-            props_filter(T, [{Location, undefined} | Acc], Context)
-    end;
+    X = try
+            z_convert:to_float(P)
+        catch
+            _:_ -> undefined
+        end,
+    props_filter(T, [{Location, X} | Acc], Context);
+
+props_filter([{pref_language, Lang}|T], Acc, Context) ->
+    Lang1 = case z_trans:to_language_atom(Lang) of
+                {ok, LangAtom} -> LangAtom;
+                {error, not_a_language} -> undefined
+            end,
+    props_filter(T, [{pref_language, Lang1} | Acc], Context);
 
 props_filter([{_Prop, _V}=H|T], Acc, Context) ->
     props_filter(T, [H|Acc], Context).
@@ -696,10 +718,11 @@ truncate_slug(<<Slug:78/binary, _/binary>>) -> Slug;
 truncate_slug(Slug) -> Slug.
 
 %% @doc Map property names to an atom, fold pivot and computed fields together for later filtering.
-map_property_name(P) when not is_list(P) -> map_property_name(z_convert:to_list(P));
-map_property_name("computed_"++_) -> computed_xxx;
-map_property_name("pivot_"++_) -> pivot_xxx;
-map_property_name(P) when is_list(P) -> erlang:list_to_existing_atom(P).
+map_property_name(IsImport, P) when not is_list(P) -> map_property_name(IsImport, z_convert:to_list(P));
+map_property_name(_IsImport, "computed_"++_) -> computed_xxx;
+map_property_name(_IsImport, "pivot_"++_) -> pivot_xxx;
+map_property_name(false, P) when is_list(P) -> erlang:list_to_existing_atom(P);
+map_property_name(true,  P) when is_list(P) -> erlang:list_to_atom(P).
 
 
 %% @doc Properties that can't be updated with m_rsc_update:update/3 or m_rsc_update:insert/2
@@ -976,11 +999,18 @@ recombine_languages(Props, Context) ->
             LangProps ++ [{language, [list_to_atom(Lang) || Lang <- L1]}|proplists:delete("language", OtherProps)]
     end.
 
-    %% @doc Fetch all the edited languages, from 'language' inputs
+    %% @doc Fetch all the edited languages, from 'language' inputs or a merged 'language' property
     edited_languages(Props, PropLangs) ->
         case proplists:is_defined("language", Props) of
-            true -> proplists:get_all_values("language", Props);
-            false -> PropLangs
+            true ->
+                proplists:get_all_values("language", Props);
+            false ->
+                case proplists:get_value(language, Props) of
+                    L when is_list(L) ->
+                        [ z_convert:to_list(Lang) || Lang <- L ];
+                    undefined ->
+                        PropLangs
+                end
         end.
 
     comb_lang([], _L1, LAcc, OAcc) ->
@@ -1009,8 +1039,11 @@ recombine_languages(Props, Context) ->
                 [{P, {trans, [{Lang1,z_convert:to_binary(V)}]}}|Acc]
         end.
 
-
 recombine_blocks(Props, OrgProps, Context) ->
+    Props1 = recombine_blocks_form(Props, OrgProps, Context),
+    recombine_blocks_import(Props1, OrgProps, Context).
+
+recombine_blocks_form(Props, OrgProps, Context) ->
     {BPs, Ps} = lists:partition(fun({"block-"++ _, _}) -> true; (_) -> false end, Props),
     case BPs of
         [] ->
@@ -1034,7 +1067,29 @@ recombine_blocks(Props, OrgProps, Context) ->
                             end,
                             dict:new(),
                             BPs),
-            [{blocks, normalize_blocks([ {K, dict:fetch(K, Dict)} || K <- Keys ], Context)} | Ps ]
+            Blocks = normalize_blocks([ {K, dict:fetch(K, Dict)} || K <- Keys ], Context),
+            [{blocks, Blocks++proplists:get_value(blocks, Ps, [])} | proplists:delete(blocks, Ps) ]
+    end.
+
+recombine_blocks_import(Props, _OrgProps, Context) ->
+    {BPs, Ps} = lists:partition(fun({"blocks."++ _, _}) -> true; (_) -> false end, Props),
+    case BPs of
+        [] ->
+            Props;
+        _ ->
+            {Dict,Keys} = lists:foldr(
+                            fun({"blocks."++Name, Val}, {Acc,KeyAcc}) ->
+                                [BlockId,BlockField] = string:tokens(Name, "."),
+                                KeyAcc1 = case lists:member(BlockId, KeyAcc) of
+                                            true -> KeyAcc;
+                                            false -> [ BlockId | KeyAcc ]
+                                          end,
+                                {dict:append(BlockId, {BlockField, Val}, Acc), KeyAcc1}
+                            end,
+                            {dict:new(),[]},
+                            BPs),
+            Blocks = normalize_blocks([ {K, dict:fetch(K, Dict)} || K <- Keys ], Context),
+            [{blocks, Blocks++proplists:get_value(blocks, Ps, [])} | proplists:delete(blocks, Ps) ]
     end.
 
 block_ids([], Acc) -> 

@@ -28,6 +28,8 @@
          n1/2,
          m/0,
          m/1,
+         compile/0,
+         compile/1,
          flush/0,
          flush/1,
          restart/0,
@@ -37,6 +39,10 @@
          ld/1,
 
          log_level/1,
+
+         shell_stopsite/1,
+         shell_startsite/1,
+         shell_restartsite/1,
 
          debug_msg/3,
 
@@ -73,10 +79,18 @@ m() ->
 %% @doc (Re)make all erlang source modules with the supplied compile 
 %% options and reset the caches.
 m(Options) ->
-    case zotonic_compile:all([load|Options]) of
+    case compile(Options) of
         ok -> flush();
         error -> error
     end.
+
+%% @doc (Re)make all erlang source modules with the supplied compile 
+%% options. Do not reset the caches.
+compile() ->
+    zotonic_compile:all().
+
+compile(Options) ->
+    zotonic_compile:all(Options).
 
 %% @doc Reset all caches, reload the dispatch rules and rescan all modules.
 flush() ->
@@ -106,13 +120,39 @@ log_level(Level) ->
 
 %% @doc Reload all changed Erlang modules
 ld() ->
-    Ms = reloader:all_changed(),
-    [ ld(M) || M <- Ms ]. 
+    zotonic_compile:ld().
 
 %% @doc Reload an Erlang module
 ld(Module) ->
-    code:purge(Module),
-    code:load_file(Module). 
+    zotonic_compile:ld(Module).
+
+%% @doc Shell commands: start a site
+shell_startsite(Site) ->
+    case z_sites_manager:get_site_status(Site) of
+        {ok, stopped} ->
+            z_sites_manager:start(Site);
+        {ok, Status} ->
+            Status;
+        {error, notfound} ->
+            notfound
+    end.
+
+%% @doc Shell commands: stop a site
+shell_stopsite(Site) ->
+    case z_sites_manager:get_site_status(Site) of
+        {ok, stopped} ->
+            stopped;
+        {ok, _Status} ->
+            z_sites_manager:stop(Site);
+        {error, notfound} ->
+            notfound
+    end.
+
+%% @doc Shell commands: stop a site
+shell_restartsite(Site) ->
+    z_sites_manager:stop(Site),
+    shell_startsite(Site).
+
 
 %% @doc Echo and return a debugging value
 debug_msg(Module, Line, Msg) ->

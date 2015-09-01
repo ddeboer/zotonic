@@ -92,7 +92,7 @@ render(File, Variables, Context) ->
 
 maybe_render({ok, ModuleIndex}, File, Variables, Context) ->
     render1(File, ModuleIndex, Variables, Context);
-maybe_render({error, Reason}, File, _Variable, _Context) ->
+maybe_render({error, Reason}, File, _Variables, _Context) ->
     lager:info("Could not find template: ~s (~p)", [File, Reason]),
     throw({error, {template_not_found, File, Reason}}).
 
@@ -158,8 +158,19 @@ compile(File, FoundFile, Context) ->
 
 compile(File, FoundFile, Module, Context) ->
     z_notifier:notify(#debug{what=template, arg={compile, File, FoundFile, Module}}, Context),
-    gen_server:call(Context#context.template_server, {compile, File, FoundFile, Module, Context}, ?TIMEOUT).
+    % swap basenames for the File and FoundFile
+    File1 = set_filename(File, FoundFile),
+    gen_server:call(Context#context.template_server, {compile, File1, FoundFile, Module, Context}, ?TIMEOUT).
 
+set_filename(File, FoundFile) ->
+    set_filename_1(filename:dirname(File), FoundFile).
+
+set_filename_1(<<".">>, FoundFile) ->
+    filename:basename(FoundFile);
+set_filename_1(".", FoundFile) ->
+    filename:basename(FoundFile);
+set_filename_1(FilePath, FoundFile) ->
+    filename:join([FilePath, filename:basename(FoundFile)]).
 
 %% @spec find_template(File, Context) -> {ok, filename()} | {ok, #module_index{}} | {error, code} 
 %% @doc Finds the template designated by the file, check modules.
@@ -193,7 +204,7 @@ find_template_cat(File, [Item|_]=Stack, Context) when is_atom(Item) ->
 find_template_cat(File, Id, Context) ->
     Stack = case {m_rsc:is_a(Id, Context), m_rsc:p(Id, name, Context)} of
                 {L, undefined} -> L;
-                {L, Name} -> L ++ [z_convert:to_atom(Name)]
+                {L, Name} -> L ++ [Name]
             end,
     find_template_cat_stack(File, Stack, Context).
 
@@ -201,7 +212,7 @@ find_template_cat_stack(File, Stack, Context) ->
     Root = z_convert:to_list(filename:rootname(File)),
     Ext = z_convert:to_list(filename:extension(File)),
     case lists:foldr(fun(Cat, {error, enoent}) ->
-                            find_template(Root ++ [$.|atom_to_list(Cat)] ++ Ext, Context);
+                            find_template(Root ++ [$.|z_convert:to_list(Cat)] ++ Ext, Context);
                         (_Cat, Found) ->
                             Found  
                      end, 

@@ -1107,7 +1107,7 @@ function z_websocket_pong( msg )
 
 function z_websocket_is_connected()
 {
-    return z_ws && z_ws.readyState !== 0 && z_ws_pong_count > 0;
+    return z_ws && z_ws.readyState == 1 && z_ws_pong_count > 0;
 }
 
 function z_websocket_restart()
@@ -1834,7 +1834,11 @@ function urlencode(s)
 // HTML escape a string so it is safe to concatenate when making tags.
 function html_escape(s)
 {
-    s.replace(/&/, "&amp;").replace(/</, "&lt;").replace(/>/, "&gt;").replace(/"/, "&quot;");
+    return s.replace(/&/, "&amp;")
+            .replace(/</, "&lt;")
+            .replace(/>/, "&gt;")
+            .replace(/"/, "&quot;")
+            .replace(/'/, "&#39;");
 }
 
 
@@ -1857,6 +1861,17 @@ function ensure_name_value(a)
     }
 }
 
+// Update the contents of an iframe
+function z_update_iframe(name, doc)
+{
+    var iframe = window.frames[name];
+    if (iframe) {
+        var iframe_doc = iframe.document || iframe.contentDocument || iframe.contentWindow.document;
+        iframe_doc.open();
+        iframe_doc.write(doc);
+        iframe_doc.close();
+    }
+}
 
 // From: http://malsup.com/jquery/form/jquery.form.js
 

@@ -61,6 +61,12 @@ Query-model arguments
 
   ``cat='news'``
 
+**cat_exact**
+
+  Filter resources to include the given category, but exclude any subcategory
+
+  ``cat_exact='news'``
+
 **cat_exclude**
 
   Filter resources to exclude the given category.
@@ -145,6 +151,21 @@ Query-model arguments
   useful to select upcoming events.
 
   ``upcoming``
+
+**ongoing**
+
+  Specifying 'ongoing' means that you only want to select things that
+  are happening now: that have a start date which lies in the past,
+  and an end date which lies in the future.
+
+  ``ongoing``
+
+**finished**
+
+  Specifying 'finished' means that you only want to select things that
+  have a start date which lies in the past. 
+
+  ``finished``
 
 **sort**
 

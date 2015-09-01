@@ -2,7 +2,7 @@
 	<table id="{{ #listemail }}" class="table">
 	{% for idn in identities %}
 	{% with idn.id as idn_id %}
-		<tr id="{{ #row.idn_id }}">
+		<tr>
 			<td>
                 <div class="radio">
                     <label>
@@ -17,17 +17,23 @@
 				{% else %}
 					<a id="{{ #verify.idn_id }}"  href="#" class="btn btn-default btn-sm" title="{_ Send verification e-mail _}">{_ Verify _}</a>		
 					{% wire id=#verify.idn_id 
-							postback={identity_verify_confirm id=id idn_id=idn_id element=#row.idn_id}
+							postback={identity_verify_confirm id=id idn_id=idn_id list_element=#listemail}
 							delegate=`mod_admin_identity`
 					%}
 				{% endif %}
 
 				<a id="{{ #del.idn_id }}" href="#" class="btn btn-default btn-sm" title="{_ Delete this e-mail address _}">{_ Delete _}</a>
 				{% wire id=#del.idn_id 
-						postback={identity_delete_confirm id=id idn_id=idn_id element=#row.idn_id list_element=#listemail}
+						postback={identity_delete_confirm id=id idn_id=idn_id list_element=#listemail}
 						delegate=`mod_admin_identity`
 				%}
 			</td>
+			{% if m.modules.active.mod_email_status %}
+			<td>
+				<a id="{{ #status.idn_id }}" href="#" class="btn btn-small" title="{_ View email status _}">{_ Status _}</a>
+				{% wire id=#status.idn_id action={dialog_open title=_"Email Status" template="_dialog_email_status.tpl" email=idn.key} %}
+			</td>
+			{% endif %}
 		</tr>
 	{% endwith %}
 	{% endfor %}

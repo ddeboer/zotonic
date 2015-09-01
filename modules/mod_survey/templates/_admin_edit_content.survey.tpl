@@ -2,7 +2,13 @@
 
 {# Admin controls for the survey #}
 
-{% block widget_title %}{_ Survey _}{% endblock %}
+{% block widget_title %}
+{_ Survey _}
+<div class="widget-header-tools">
+    <a href="javascript:void(0)" class="z-btn-help do_dialog" data-dialog="title: '{{ _"Help about surveys"|escapejs }}', text: '{{ _"You can create your survey by adding blocks with questions below the body."|escapejs }}'" title="{_ Need more help? _}"></a>
+</div>
+{% endblock %}
+
 {% block widget_show_minimized %}false{% endblock %}
 {% block widget_id %}content-survey{% endblock %}
 
@@ -14,6 +20,10 @@
     <div class="row">
 	    <div class="col-lg-6 col-md-6">
 		    <div class="form-group">
+	            <div class="checkbox"><label>
+			            <input type="checkbox" name="survey_is_autostart" id="survey_is_autostart" value="1" {% if id.survey_is_autostart or (id.survey_is_autostart|is_undefined and id.is_a.poll) %}checked="checked"{% endif %} />
+			            {_ Immediately start with the questions, no “Start” button _}
+		            </label></div>
 			    <div class="checkbox"><label>
 				        {% if id.is_a.poll %}
 					        <input type="hidden" name="survey_show_results" id="survey_show_results" value="1" />
@@ -31,10 +41,6 @@
 	    </div>
 
 	    <div class="col-lg-6 col-md-6">
-		    <div class="pull-right">
-			    <a href="javascript:void(0)" class="z-btn-help do_dialog" data-dialog="title: '{{ _"Help about surveys"|escapejs }}', text: '{{ _"You can create your survey by adding blocks with questions below the body."|escapejs }}'" title="{_ Need more help? _}"></a>
-		    </div>
-
 		    <div class="form-group">
 			    <div class="radio"><label>
 				        <input type="radio" name="survey_progress" id="survey_progress_none" value="" {% if not id.survey_progress %}checked="checked"{% endif %} />

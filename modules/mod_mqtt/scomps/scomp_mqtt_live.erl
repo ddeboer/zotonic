@@ -35,7 +35,7 @@
 
 %% @doc Special rendering for the {mqtt} wire event type
 event_type_mqtt(#action_event_type{event={mqtt, Args}, postback_js = PostbackJS, action_js = ActionJS}, Context) ->
-    Topics = [ map_topic(V, Context) || V <- proplists:get_all_values(topic, Args) ],
+    Topics = [ z_mqtt:map_topic(V, Context) || V <- proplists:get_all_values(topic, Args) ],
     Script = iolist_to_binary([
         <<"pubzub.subscribe_multi(">>,
             z_utils:js_array(Topics),$,,
@@ -55,7 +55,14 @@ vary(_Params, _Context) ->
     nocache.
 
 render(Params, _Vars, Context) ->
-    Template = proplists:get_value(template, Params),
+    case proplists:get_value(template, Params) of
+        undefined ->
+            render_postback(Params, Context);
+        Template ->
+            render_template(Template, Params, Context)
+    end.
+
+render_template(Template, Params, Context) ->
     Target = proplists:get_value(target, Params, z_convert:to_binary(z_ids:identifier(16))),
     Where = z_convert:to_binary(proplists:get_value(where, Params, <<"update">>)), 
     {LiveVars,TplVars} = lists:partition(
@@ -81,6 +88,21 @@ render(Params, _Vars, Context) ->
             {ok, {javascript, script(Target, Where, LiveVars, TplVars, Context)}}
     end.
 
+render_postback(Params, Context) ->
+    {postback, Tag} = proplists:lookup(postback, Params),
+    {delegate, Delegate} = proplists:lookup(delegate, Params),
+    {target, Target} = proplists:lookup(target, Params),
+    Postback = z_render:make_postback_info(Tag, undefined, undefined, Target, Delegate, Context),
+    Topics = [ z_mqtt:map_topic(V, Context) || V <- proplists:get_all_values(topic, Params) ],
+    Script = iolist_to_binary([
+        <<"z_live.subscribe(">>, 
+            z_utils:js_array(Topics),$,,
+            $',z_utils:js_escape(Target), $',$,,
+            $',Postback,$',
+        $), $;
+    ]),
+    {ok, {javascript, Script}}.
+
 event(#postback{message={live, Where, Template, TplVars}, target=Target}, Context) ->
     Render = #render{template=Template, vars=[{target,Target}|TplVars]},
     render(Where, Target, Render, Context).
@@ -104,7 +126,7 @@ opt_wrap_element(Element, Id, Html) ->
 script(Target, Where, LiveVars, TplVars, Context) ->
     Tag = {live, Where, proplists:get_value(template,LiveVars), TplVars},
     Postback = z_render:make_postback_info(Tag, undefined, undefined, Target, ?MODULE, Context),
-    Topics = [ map_topic(V, Context) || V <- proplists:get_all_values(topic, LiveVars) ],
+    Topics = [ z_mqtt:map_topic(V, Context) || V <- proplists:get_all_values(topic, LiveVars) ],
     iolist_to_binary([
         <<"z_live.subscribe(">>, 
             z_utils:js_array(Topics),$,,
@@ -112,22 +134,6 @@ script(Target, Where, LiveVars, TplVars, Context) ->
             $',Postback,$',
         $), $;
     ]).
-
-map_topic(Id, _Context) when is_integer(Id) ->
-    <<"~site/rsc/",(z_convert:to_binary(Id))/binary>>;
-map_topic({object, Props}, Context) when is_list(Props) ->
-    map_topic_edge($o, Props, Context);
-map_topic({subject, Props}, Context) when is_list(Props) ->
-    map_topic_edge($s, Props, Context);
-map_topic(Topic, _Context) ->
-    z_convert:to_binary(Topic).
-
-map_topic_edge(ObjSub, Props, Context) ->
-    Id = proplists:get_value(id, Props),
-    Predicate = proplists:get_value(predicate, Props),
-    Name = to_predicate_name(Predicate, Context),
-    <<"~site/rsc/",(z_convert:to_binary(Id))/binary, $/, ObjSub, $/, Name/binary>>.
-
 
 render(<<"top">>, Target, Render, Context) ->
     z_render:insert_top(Target, Render, Context);
@@ -141,13 +147,3 @@ render(_Update, Target, Render, Context) ->
     z_render:update(Target, Render, Context).
 
 
-to_predicate_name(undefined, _Context) -> <<"+">>;
-to_predicate_name(<<"*">>, _Context) -> <<"+">>;
-to_predicate_name("*", _Context) -> <<"+">>;
-to_predicate_name('*', _Context) -> <<"+">>;
-to_predicate_name(<<>>, _Context) -> <<"+">>;
-to_predicate_name(Id, Context) when is_integer(Id) ->
-    {ok, Name} = m_predicate:to_name(Id, Context),
-    z_convert:to_binary(Name);
-to_predicate_name(Pred, _Context) ->
-    z_convert:to_binary(Pred).

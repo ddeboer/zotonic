@@ -55,16 +55,7 @@ import(Def, IsReset, Context) ->
                 true -> tl(Rows); 
                 _ -> Rows
             end,
-    Rows2 = lists:filter(fun
-                            ([<<$#, _/binary>>|_]) -> false; 
-                            ([]) -> false;
-                            (_) -> true
-                         end,
-                         Rows1),
-    State = import_rows(Rows2, Def, new_importstate(IsReset), Context),
-
-    %% @todo Delete all not-mentioned but previously imported resources
-    DeleteIds = [],
+    State = import_rows(Rows1, 1, Def, new_importstate(IsReset), Context),
 
     %% Return the stats from this import run
     R = State#importstate.result,
@@ -75,7 +66,7 @@ import(Def, IsReset, Context) ->
       {new,  R#importresult.new},
       {updated, R#importresult.updated},
       {errors, R#importresult.errors},
-      {deleted, length(DeleteIds)},
+      {deleted, 0},
       {ignored, R#importresult.ignored}].
 
 
@@ -93,12 +84,16 @@ new_importstate(IsReset) ->
 %%====================================================================
 
 %% @doc Import all rows.
-import_rows([], _Def, ImportState, _Context) -> 
+import_rows([], _RowNr, _Def, ImportState, _Context) -> 
     ImportState;
-import_rows([R|Rows], Def, ImportState, Context) ->
+import_rows([[<<$#, _/binary>>|_]|Rows], RowNr, Def, ImportState, Context) ->
+    import_rows(Rows, RowNr+1, Def, ImportState, Context);
+import_rows([[]|Rows], RowNr, Def, ImportState, Context) ->
+    import_rows(Rows, RowNr+1, Def, ImportState, Context);
+import_rows([R|Rows], RowNr, Def, ImportState, Context) ->
     Zipped = zip(R, Def#filedef.columns, []),
-    ImportState1 = import_parts(Zipped, Def#filedef.importdef, ImportState, Context),
-    import_rows(Rows, Def, ImportState1, Context).
+    ImportState1 = import_parts(Zipped, RowNr, Def#filedef.importdef, ImportState, Context),
+    import_rows(Rows, RowNr+1, Def, ImportState1, Context).
 
 
 %% @doc Combine the field name definitions and the field values.
@@ -111,35 +106,43 @@ zip([C|Cs], [N|Ns], Acc) -> zip(Cs, Ns, [{z_convert:to_list(N), C}|Acc]).
 
 
 %% @doc Import all resources on a row
-import_parts(_Row, [], ImportState, _Context) ->
+import_parts(_Row, _RowNr, [], ImportState, _Context) ->
     ImportState;
-import_parts(Row, [Def | Definitions], ImportState, Context) ->
+import_parts(Row, RowNr, [Def | Definitions], ImportState, Context) ->
     {FieldMapping, ConnectionMapping} = Def,
-    case import_def_rsc(FieldMapping, Row, ImportState, Context) of
-        {S, ignore} ->
-            import_parts(Row, Definitions, S, Context);
-        {S, {error, Type, E}} ->
-            add_result_seen(Type, add_result_error(Type, E, S));
+    try
+        case import_def_rsc(FieldMapping, Row, ImportState, Context) of
+            {S, ignore} ->
+                import_parts(Row, RowNr, Definitions, S, Context);
+            {S, {error, Type, E}} ->
+                add_result_seen(Type, add_result_error(Type, E, S));
 
-        {S, {new, Type, Id, Name}} ->
-            State0 = add_managed_resource(Id, FieldMapping, S),
-            State1 = add_name_lookup(State0, Name, Id),
-            State2 = import_parts(Row, Definitions, State1, Context),
-            import_def_edges(Id, ConnectionMapping, Row, State2, Context),
-            add_result_seen(Type, add_result_new(Type, State2));
+            {S, {new, Type, Id, Name}} ->
+                State0 = add_managed_resource(Id, FieldMapping, S),
+                State1 = add_name_lookup(State0, Name, Id),
+                State2 = import_parts(Row, RowNr, Definitions, State1, Context),
+                import_def_edges(Id, ConnectionMapping, Row, State2, Context),
+                add_result_seen(Type, add_result_new(Type, State2));
 
-        {S, {equal, Type, Id}} ->
-            State0 = add_managed_resource(Id, FieldMapping, S),
-            State1 = import_parts(Row, Definitions, State0, Context),
-            import_def_edges(Id, ConnectionMapping, Row, State1, Context),
-            add_result_seen(Type, add_result_ignored(Type, State1));
+            {S, {equal, Type, Id}} ->
+                State0 = add_managed_resource(Id, FieldMapping, S),
+                State1 = import_parts(Row, RowNr, Definitions, State0, Context),
+                import_def_edges(Id, ConnectionMapping, Row, State1, Context),
+                add_result_seen(Type, add_result_ignored(Type, State1));
 
-        {S, {updated, Type, Id}} ->
-            %% Equal
-            State0 = add_managed_resource(Id, FieldMapping, S),
-            State1 = import_parts(Row, Definitions, State0, Context),
-            add_result_seen(Type, import_def_edges(Id, ConnectionMapping, Row, State1, Context)),
-            add_result_updated(Type, State1)
+            {S, {updated, Type, Id}} ->
+                %% Equal
+                State0 = add_managed_resource(Id, FieldMapping, S),
+                State1 = import_parts(Row, RowNr, Definitions, State0, Context),
+                add_result_seen(Type, import_def_edges(Id, ConnectionMapping, Row, State1, Context)),
+                add_result_updated(Type, State1)
+        end
+    catch
+        throw:{import_error, ImportError} ->
+            lager:error("[import_csv] Error importing row #~p, error: ~p", [RowNr, ImportError]),
+            lager:error("[import_csv] Row #~p was: ~p", [RowNr, Row]),
+            lager:error("[import_csv] Row #~p import definition: ~p", [RowNr, Def]),
+            ImportState
     end.
 
 
@@ -162,7 +165,7 @@ import_def_rsc_1_cat(Row, Callbacks, State, Context) ->
            end,
     {OptRscId, State2} = name_lookup(Name, State1, Context),
     RscId = case OptRscId of undefined -> insert_rsc; _ -> OptRscId end,
-    NormalizedRow = sort_props(m_rsc_update:normalize_props(RscId, Row1, Context)),
+    NormalizedRow = sort_props(m_rsc_update:normalize_props(RscId, Row1, [is_import], Context)),
     case has_required_rsc_props(NormalizedRow) of
         true ->
            import_def_rsc_2_name(RscId, State2, Name, CategoryName, NormalizedRow, Callbacks, Context);
@@ -191,7 +194,7 @@ import_def_rsc_2_name(insert_rsc, State, Name, CategoryName, NormalizedRow, Call
 import_def_rsc_2_name(Id, State, Name, CategoryName, NormalizedRow, Callbacks, Context) when is_integer(Id) ->
     % 1. Check if this update was the same as the last known import
     PrevImportData = m_import_csv_data:get(Id, Context),
-    PrevChecksum = proplists:get_value(checksum, PrevImportData),
+    PrevChecksum = get_value(checksum, PrevImportData),
     case checksum(NormalizedRow) of
         PrevChecksum when not State#importstate.is_reset ->
             lager:info("[~p] import_csv: skipping ~p (importing same values)", [z_context:site(Context), Name]),
@@ -204,7 +207,7 @@ import_def_rsc_2_name(Id, State, Name, CategoryName, NormalizedRow, Callbacks, C
             %    (also pass any import-data from an older import module)
             RawRscPre = get_updated_props(Id, NormalizedRow, Context),
             Edited = diff_raw_props(RawRscPre, 
-                                    proplists:get_value(rsc_data, PrevImportData, []),
+                                    get_value(rsc_data, PrevImportData, []),
                                     m_rsc:p_no_acl(Id, import_csv_original, Context)),
 
             % Cleanup old import_csv data on update
@@ -286,7 +289,6 @@ rsc_update(Id, Props, Context) ->
             m_rsc_update:update(Id, Props, [{is_import, true}], Context)
     end.
 
-
 check_medium(Props) ->
     case proplists:get_value(medium_url, Props) of
         undefined -> none;
@@ -295,6 +297,13 @@ check_medium(Props) ->
         Url -> {url, Url, proplists:delete(medium_url, Props)}
     end.
 
+get_value(K, L) ->
+    get_value(K, L, undefined).
+
+get_value(K, L, D) when is_list(L) ->
+    proplists:get_value(K, L, D);
+get_value(_K, undefined, D) ->
+    D.
 
 import_def_edges({error, _}, _, _, State, _Context) ->
     State;
@@ -374,6 +383,7 @@ add_managed_resource(Id, Props, State=#importstate{managed_resources=M}) ->
 
 add_name_lookup(State=#importstate{name_to_id=Tree}, Name, Id) ->
     case gb_trees:lookup(Name, Tree) of
+        {value, undefined} -> State#importstate{name_to_id=gb_trees:update(Name, Id, Tree)};
         {value, _} -> State;
         none -> State#importstate{name_to_id=gb_trees:insert(Name, Id, Tree)}
     end.
@@ -413,7 +423,7 @@ map_fields(Mapping, Row, State) ->
 
 map_def({K,F}, Row, State) ->
 	{K, map_one(F, Row, State)};
-map_def(K, Row, State) when is_atom(K), is_list(K) ->
+map_def(K, Row, State) when is_atom(K); is_list(K) ->
 	map_def({K,K}, Row, State).
 
 

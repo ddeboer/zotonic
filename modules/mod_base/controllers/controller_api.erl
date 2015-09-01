@@ -42,7 +42,13 @@ service_available(ReqData, DispatchArgs) when is_list(DispatchArgs) ->
     Context  = z_context:new(ReqData, ?MODULE),
     Context1 = z_context:set(DispatchArgs, Context),
     z_context:lager_md(Context1),
-    ?WM_REPLY(true, Context1).
+    ReqData1 = set_cors_header(ReqData, Context1),
+    case wrq:method(ReqData) of
+        'OPTIONS' ->
+            {{halt, 204}, ReqData1, Context1};
+        _ ->
+            {true, ReqData1, Context1}
+    end.
 
 
 allowed_methods(ReqData, Context) ->
@@ -68,14 +74,14 @@ allowed_methods(ReqData, Context) ->
         {ok, Module} ->
             Context2 = z_context:set(service_module, Module, Context1),
             try
-                {z_service:http_methods(Module), ReqData, Context2}
+                {['OPTIONS' | z_service:http_methods(Module)], ReqData, Context2}
             catch
                 _X:_Y ->
-                    {['GET', 'HEAD', 'POST'], ReqData, Context2}
+                    {['GET', 'HEAD', 'POST', 'OPTIONS'], ReqData, Context2}
             end;
         {error, not_found} ->
             %% The atom (service module) does not exist, return default methods.
-            {['GET', 'HEAD', 'POST'], ReqData, Context1}
+            {['GET', 'HEAD', 'POST', 'OPTIONS'], ReqData, Context1}
     end.
 
 
@@ -126,13 +132,39 @@ content_types_provided(ReqData, Context) ->
       {"text/javascript", to_json}
      ], ReqData, Context}.
 
+set_cors_header(ReqData, Context) ->
+    %% set in site config file
+    %%  [{service_api_cors, false}, %% 2nd is default value
+    %%      {'Access-Control-Allow-Origin', "*"},
+    %%      {'Access-Control-Allow-Credentials', undefined}, 
+    %%      {'Access-Control-Max-Age', undefined},
+    %%      {'Access-Control-Allow-Methods', undefined},
+    %%      {'Access-Control-Allow-Headers', undefined}]
+    {ok, SiteConfigs} = z_sites_manager:get_site_config(z_context:site(Context)),
+    case proplists:get_value(service_api_cors, SiteConfigs) of
+        true -> lists:foldl(fun ({K, Def}, Acc) ->
+                        case proplists:get_value(K, SiteConfigs, Def) of
+                            undefined -> Acc;
+                            V -> wrq:set_resp_header(z_convert:to_list(K), z_convert:to_list(V), Acc)
+                        end
+                end, 
+                ReqData, 
+                [{'Access-Control-Allow-Origin', "*"},
+                    {'Access-Control-Allow-Credentials', undefined}, 
+                    {'Access-Control-Max-Age', undefined},
+                    {'Access-Control-Allow-Methods', undefined},
+                    {'Access-Control-Allow-Headers', undefined}]);
+        _ -> ReqData
+    end.
 
 api_error(HttpCode, ErrCode, Message, ReqData, Context) ->
     R = {struct, [{error, {struct, [{code, ErrCode}, {message, Message}]}}]},
     {{halt, HttpCode}, wrq:set_resp_body(mochijson:encode(R), ReqData), Context}.
 
 
-api_result(ReqData, Context, Result) ->
+api_result(Context, Result) ->
+    ReqData = z_context:get_reqdata(Context),
+    
     case Result of
         {error, Err=missing_arg, Arg} ->
             api_error(400, Err, "Missing argument: " ++ Arg, ReqData, Context);
@@ -143,6 +175,9 @@ api_result(ReqData, Context, Result) ->
         {error, Err=syntax, Arg} ->
             api_error(400, Err, "Syntax error: " ++ Arg, ReqData, Context);
 
+        {error, Err=unauthorized, _Arg} ->
+            api_error(401, Err, "Unauthorized.", ReqData, Context);
+        
         {error, Err=not_exists, Arg} ->
             api_error(404, Err, "Resource does not exist: " ++ Arg, ReqData, Context);
 
@@ -174,19 +209,76 @@ api_result(ReqData, Context, Result) ->
     
 
 to_json(ReqData, Context) ->
-    Module = z_context:get(service_module, Context),
-    api_result(ReqData, Context, Module:process_get(ReqData, Context)).
+    Context0 = ?WM_REQ(ReqData, Context),
+    Module = z_context:get(service_module, Context0),
+    {Context1, Result} = 
+        case Module:process_get(ReqData, Context0) of
+            {R, C=#context{}} -> {C, R};
+            R -> {Context, R}
+        end,
+    api_result(Context1, Result).
 
 
-process_post(ReqData, Context) ->
-    Module = z_context:get(service_module, Context),
-    case Module:process_post(ReqData, Context) of
-        ok ->
-            {true, ReqData, Context};
-        Result ->
-            api_result(ReqData, Context, Result)
+process_post(ReqData, Context0) ->
+    Context = ?WM_REQ(ReqData, Context0),
+    case handle_json_request(ReqData, Context) of
+        {error, _Reason} ->
+            api_result(Context, {error, syntax, "invalid JSON in request body"});
+        {ok, Context1} ->
+            Module = z_context:get(service_module, Context1),
+            ReqData1 = z_context:get_reqdata(Context1),
+            case Module:process_post(ReqData1, Context1) of
+                ok ->
+                    {true, ReqData1, Context1};
+                {Result, Context2=#context{}} ->
+                    api_result(Context2, Result);
+                Result ->
+                    api_result(Context1, Result)
+            end
+    end.
+    
+%% @doc Handle JSON request bodies.
+-spec handle_json_request(#wm_reqdata{}, #context{}) -> {ok, #context{}} | {error, string()}.
+handle_json_request(ReqData, Context) ->
+    case wrq:get_req_header("content-type", ReqData) of
+        "application/json" ++ _ ->
+            decode_json_body(ReqData, Context);
+        _ ->
+            {ok, Context}
     end.
 
+%% @doc Decode JSON request body.
+-spec decode_json_body(#wm_reqdata{}, #context{}) -> {ok, #context{}} | {error, string()}.
+decode_json_body(ReqData0, Context0) ->
+    {ReqBody, ReqData} = wrq:req_body(ReqData0),
+    Context = ?WM_REQ(ReqData, Context0),
+    
+    case ReqBody of 
+        <<>> -> {ok, Context};
+        NonEmptyBody ->
+            Json = try 
+                mochijson2:decode(NonEmptyBody)
+            catch
+                Type:Reason -> {error, {Type, Reason}}
+            end,
+            
+            case Json of 
+                {error, Error} -> {error, Error};
+                {struct, JsonStruct} ->
+                    %% A JSON object: set key/value pairs in the context
+                    Context1 = lists:foldl(
+                        fun({Key, Value}, Context2) ->
+                            z_context:set_q(z_convert:to_list(Key), Value, Context2)
+                        end,
+                        Context,
+                        JsonStruct
+                    ),
+                    {ok, Context1};
+                _ ->
+                    %% A JSON list: don't alter context
+                    {ok, Context}
+            end
+    end.
 
 get_callback(Context) ->
     case z_context:get_q("callback", Context) of
