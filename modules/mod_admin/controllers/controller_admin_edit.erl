@@ -79,7 +79,7 @@ ensure_id(Context) ->
             {Context, N};
         undefined ->
             try
-                {ok, IdN} = m_rsc:name_to_id(z_context:get_q("id", Context), Context),
+                {ok, IdN} = m_rsc:rid(z_context:get_q("id", Context), Context),
                 {z_context:set(id, IdN, Context), IdN}
             catch
                 _:_ -> {Context, undefined}

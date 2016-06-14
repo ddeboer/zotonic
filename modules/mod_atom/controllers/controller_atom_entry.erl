@@ -116,7 +116,7 @@ get_id(Context) ->
         undefined -> z_context:get_q("id", Context);
         ConfId -> ConfId
     end,
-    case m_rsc:name_to_id(ReqId, Context) of
+    case m_rsc:rid(ReqId, Context) of
         {ok, RscId} -> RscId;
         _ -> false
     end.

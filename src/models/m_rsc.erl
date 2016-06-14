@@ -130,14 +130,9 @@ name_to_id(<<>>, _Context) ->
 name_to_id([], _Context) ->
     {error, {unknown_rsc, []}};
 name_to_id(Name, Context) ->
-    case z_utils:only_digits(Name) of
-        true ->
-            {ok, z_convert:to_integer(Name)};
-        false ->
-            case name_lookup(Name, Context) of
-                Id when is_integer(Id) -> {ok, Id};
-                _ -> {error, {unknown_rsc, Name}}
-            end
+    case name_lookup(Name, Context) of
+        Id when is_integer(Id) -> {ok, Id};
+        _ -> {error, {unknown_rsc, Name}}
     end.
 
 name_to_id_check(Name, Context) ->
